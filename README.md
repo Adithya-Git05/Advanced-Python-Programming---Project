@@ -93,7 +93,7 @@ streamlit run frontend/app.py --server.port=8501
 
 1. **Register** with a username and password (min 8 characters)
 2. **Login** with your credentials
-3. **Start Game** - You'll play 30 rounds
+3. **Start Game** - You'll play 5 rounds
 4. **View Street View** image
 5. **Click on the map** where you think the location is
 6. **Submit your guess** - Get instant feedback on accuracy
@@ -115,11 +115,12 @@ $$\text{Points} = 5000 \times e^{-\text{distance\_meters} / 20000}$$
 
 To minimize Google Street View API costs:
 
-- **First startup**: 40 locations' images are downloaded and cached locally (~40 API calls, ~$0.007)
-- **Subsequent gameplay**: All images served from local cache (zero API cost)
-- **Cache location**: `backend/cache/` directory
+- **On-demand caching**: Images are downloaded only when a location is played for the first time
+- **Cached storage**: Downloaded images are stored in `backend/cache/` directory for future use
+- **Zero subsequent API calls**: Once cached, images are served locally with no additional API charges
+- **40 locations available**: 40 well-known cities are available for gameplay
 
-This means you only pay for initial seeding, not per-game!
+This strategy means you only pay for images that are actually used during gameplay!
 
 ## API Endpoints
 
@@ -237,21 +238,19 @@ For issues or questions:
 ---
 
 **Enjoy the game! 🌍**
-# Optional: set BACKEND_URL if backend runs on non-default host/port
-$env:BACKEND_URL = 'http://localhost:8000'
-streamlit run frontend/app.py
-```
 
 ## Notes & Security
 
 - This project is a demonstration and not secure for production as-is.
 - Tokens are created without expiry for simplicity; in production add `exp` claims and token refresh.
-- Keep your `MAPILLARY_TOKEN` and `JWT_SECRET` secure.
-- The backend fetches live image URLs from Mapillary only — no local caching, no fallbacks.
+- Keep your Google Street View API key and `JWT_SECRET` secure.
+- Use environment variables to manage secrets, never hardcode them.
 
-## Next steps / Improvements
+## Next Steps / Improvements
 
 - Add pagination and filtering to leaderboard
 - Add per-round timing and better UX for map interactions
-- Improve image caching keys (include heading/pitch) and add eviction policy
-- Move secrets to a proper secrets manager
+- Implement difficulty levels (easy/medium/hard based on regions)
+- Add user profiles with gameplay statistics
+- Improve mobile responsive design
+- Add more location varieties across continents
