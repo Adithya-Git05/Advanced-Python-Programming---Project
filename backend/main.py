@@ -38,7 +38,9 @@ JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # not enforced in this simple example
 
 # Google Street View API key
-GOOGLE_STREETVIEW_KEY = os.getenv("GOOGLE_STREETVIEW_KEY", "AIzaSyDRQluHs_3BN9M3I51NNn6ZGMrGJ7U6kkU")
+GOOGLE_STREETVIEW_KEY = os.getenv("GOOGLE_STREETVIEW_KEY")
+if not GOOGLE_STREETVIEW_KEY:
+    raise ValueError("GOOGLE_STREETVIEW_KEY environment variable is required. Please set it in your .env file.")
 
 MAX_POINTS = 5000
 SCORE_SCALE_METERS = 20000.0  # decay scale for exponential scoring
@@ -176,7 +178,7 @@ class FetchImageResponse(BaseModel):
     image_url: str
 
 
-app = FastAPI(title="GeoGuessr-lite API")
+app = FastAPI(title="Street Smarts API")
 app.mount("/cache", StaticFiles(directory=CACHE_DIR), name="cache")
 
 
