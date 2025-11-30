@@ -17,7 +17,9 @@ IMPORTANT:
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (parent of frontend directory)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 import time
 import requests
@@ -32,6 +34,27 @@ from datetime import datetime
 # --------------------
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 ROUNDS_PER_GAME = 5  # 5 rounds per game
+
+
+def get_image_url(image_path: str) -> str:
+    """Convert backend image path to a proper HTTP URL for serving.
+    
+    The backend returns either:
+    - An absolute file path (e.g., C:\\...\\cache\\gsv_48_8566_2_3522.jpg)
+    - An HTTP URL (starts with http)
+    
+    This function converts local paths to backend-served URLs.
+    """
+    if not image_path:
+        return ""
+    
+    # Already an HTTP URL - return as-is
+    if image_path.startswith("http"):
+        return image_path
+    
+    # Extract just the filename from the path and serve via backend
+    filename = os.path.basename(image_path)
+    return f"{BACKEND_URL}/cache/{filename}"
 
 
 def api_post(path, token=None, json_body=None, data=None):
@@ -307,9 +330,10 @@ def main():
         hint = get_subtle_hint(loc['name'])
         st.markdown(f"💡 **Hint:** {hint}")
 
-        # Display the cached image
+        # Display the cached image (convert local path to HTTP URL)
         if loc.get("image_url"):
-            st.image(loc["image_url"], use_container_width=True, caption="📸 Street View - Click the map to guess!")
+            image_url = get_image_url(loc["image_url"])
+            st.image(image_url, use_container_width=True, caption="📸 Street View - Click the map to guess!")
         else:
             st.warning("⚠️ No Street View image available for this location.")
 

@@ -1,7 +1,9 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (parent of backend directory)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 import math
 import io
@@ -9,6 +11,8 @@ import random
 import csv
 import hashlib
 import shutil
+import time
+from collections import defaultdict
 from typing import Optional
 from pathlib import Path
 
@@ -38,7 +42,7 @@ JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
     raise ValueError("JWT_SECRET environment variable is required. Please set it in your .env file.")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # not enforced in this simple example
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  
 
 # Google Street View API key
 GOOGLE_STREETVIEW_KEY = os.getenv("GOOGLE_STREETVIEW_KEY")
@@ -47,6 +51,32 @@ if not GOOGLE_STREETVIEW_KEY:
 
 MAX_POINTS = 5000
 SCORE_SCALE_METERS = 20000.0  # decay scale for exponential scoring
+
+# --------------------
+# Rate Limiting
+# --------------------
+# Simple in-memory rate limiter (use Redis for production/multi-instance)
+RATE_LIMIT_REQUESTS = 60  # max requests per window
+RATE_LIMIT_WINDOW = 60  # window in seconds
+
+rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+
+def check_rate_limit(client_ip: str) -> bool:
+    """Check if client has exceeded rate limit. Returns True if allowed, False if limited."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    
+    # Clean old entries and get recent requests
+    rate_limit_store[client_ip] = [
+        ts for ts in rate_limit_store[client_ip] if ts > window_start
+    ]
+    
+    if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
+        return False
+    
+    rate_limit_store[client_ip].append(now)
+    return True
 
 # --------------------
 # Database setup
@@ -195,6 +225,42 @@ app.add_middleware(
 app.mount("/cache", StaticFiles(directory=CACHE_DIR), name="cache")
 
 
+# --------------------
+# Rate Limiting Middleware
+# --------------------
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests."""
+    client_ip = request.client.host if request.client else "unknown"
+    
+    if not check_rate_limit(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."}
+        )
+    
+    return await call_next(request)
+
+
+# --------------------
+# Global Exception Handler (hide sensitive info)
+# --------------------
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return a generic error message.
+    
+    This prevents leaking sensitive information like environment variables,
+    file paths, or stack traces to clients.
+    """
+    # Log the actual error server-side for debugging
+    print(f"Unhandled exception: {type(exc).__name__}: {exc}")
+    
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. Please try again later."}
+    )
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
@@ -294,16 +360,6 @@ def fetch_google_streetview_url(lat: float, lng: float, size: str = "400x300") -
         f"&location={lat},{lng}"
         f"&key={GOOGLE_STREETVIEW_KEY}"
     )
-
-
-
-
-
-
-
-
-
-
 
 
 
