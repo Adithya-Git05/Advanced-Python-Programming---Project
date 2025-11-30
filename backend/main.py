@@ -16,6 +16,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Float
 from sqlalchemy import create_engine
@@ -181,6 +182,16 @@ class FetchImageResponse(BaseModel):
 
 
 app = FastAPI(title="Street Smarts API")
+
+# Configure CORS to allow frontend requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins like ["http://localhost:8501"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/cache", StaticFiles(directory=CACHE_DIR), name="cache")
 
 
