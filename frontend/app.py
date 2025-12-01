@@ -28,6 +28,7 @@ from streamlit_folium import st_folium
 import folium
 import json
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 # --------------------
 # Configuration
@@ -35,6 +36,21 @@ from datetime import datetime
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")  # For interactive Street View
 ROUNDS_PER_GAME = 5  # 5 rounds per game
+ROUND_TIME_SECONDS = 90  # Timer for each round
+HINT_REVEAL_SECONDS = 15  # Show hint in last N seconds
+
+
+def format_distance(meters: float) -> str:
+    """Format distance in km with appropriate precision."""
+    km = meters / 1000
+    if km < 1:
+        return f"{meters:,.0f} m"
+    elif km < 10:
+        return f"{km:,.2f} km"
+    elif km < 100:
+        return f"{km:,.1f} km"
+    else:
+        return f"{km:,.0f} km"
 
 
 def get_image_url(image_path: str) -> str:
@@ -58,7 +74,7 @@ def get_image_url(image_path: str) -> str:
     return f"{BACKEND_URL}/cache/{filename}"
 
 
-def get_interactive_streetview_html(lat: float, lng: float, api_key: str) -> str:
+def get_interactive_streetview_html(lat: float, lng: float, api_key: str, initial_heading: int = 0) -> str:
     """Generate interactive Google Street View panorama HTML/JS.
     
     Features:
@@ -72,12 +88,11 @@ def get_interactive_streetview_html(lat: float, lng: float, api_key: str) -> str
         lat: Latitude of the location
         lng: Longitude of the location
         api_key: Google Maps JavaScript API key
+        initial_heading: The initial heading for the panorama (0-360)
     
     Returns:
         HTML string with embedded Street View panorama
     """
-    import random
-    initial_heading = random.randint(0, 360)
     
     return f"""
     <!DOCTYPE html>
@@ -322,54 +337,60 @@ def show_loading_animation():
 
 
 def get_subtle_hint(location_name: str) -> str:
-    """Generate a subtle hint instead of revealing the exact city
+    """Generate a subtle hint showing only the continent.
     
     Examples:
-    - "Paris, France" -> "Somewhere in Europe"
-    - "Tokyo, Japan" -> "Somewhere in Asia"
-    - "New York, USA" -> "Somewhere in North America"
+    - "Paris, France" -> "Europe"
+    - "Tokyo, Japan" -> "Asia"
+    - "New York, USA" -> "North America"
     """
     hints = {
-        "Paris": "🇫🇷 Western Europe",
-        "London": "🇬🇧 British Isles",
-        "Berlin": "🇩🇪 Central Europe",
-        "Vienna": "🇦🇹 Central Europe",
-        "Barcelona": "🇪🇸 Mediterranean",
-        "Florence": "🇮🇹 Southern Europe",
-        "Rome": "🇮🇹 Southern Europe",
-        "Moscow": "🇷🇺 Eastern Europe",
-        "Stockholm": "🇸🇪 Northern Europe",
-        "Helsinki": "🇫🇮 Nordic Region",
-        "New York": "🇺🇸 North America (East Coast)",
-        "Los Angeles": "🇺🇸 North America (West Coast)",
-        "Chicago": "🇺🇸 North America (Midwest)",
-        "Houston": "🇺🇸 North America (South)",
-        "Atlanta": "🇺🇸 North America (South)",
-        "Vancouver": "🇨🇦 North America",
-        "Toronto": "🇨🇦 North America",
-        "Portland": "🇺🇸 North America (West Coast)",
-        "Seattle": "🇺🇸 North America (West Coast)",
-        "San Francisco": "🇺🇸 North America (West Coast)",
-        "Tokyo": "🇯🇵 East Asia",
-        "Shanghai": "🇨🇳 East Asia",
-        "Hong Kong": "🇭🇰 East Asia",
-        "Singapore": "🇸🇬 Southeast Asia",
-        "Bangkok": "🇹🇭 Southeast Asia",
-        "Seoul": "🇰🇷 East Asia",
-        "Delhi": "🇮🇳 South Asia",
-        "Mumbai": "🇮🇳 South Asia",
-        "Osaka": "🇯🇵 East Asia",
-        "Kolkata": "🇮🇳 South Asia",
-        "Sydney": "🇦🇺 Oceania",
-        "São Paulo": "🇧🇷 South America",
-        "Rio de Janeiro": "🇧🇷 South America",
-        "Lima": "🇵🇪 South America",
-        "Buenos Aires": "🇦🇷 South America",
-        "Cape Town": "🇿🇦 Southern Africa",
-        "Johannesburg": "🇿🇦 Southern Africa",
-        "Cairo": "🇪🇬 North Africa",
-        "Lagos": "🇳🇬 West Africa",
-        "Abuja": "🇳🇬 West Africa",
+        # Europe
+        "Paris": "Europe",
+        "London": "Europe",
+        "Berlin": "Europe",
+        "Vienna": "Europe",
+        "Barcelona": "Europe",
+        "Florence": "Europe",
+        "Rome": "Europe",
+        "Moscow": "Europe",
+        "Stockholm": "Europe",
+        "Helsinki": "Europe",
+        # North America
+        "New York": "North America",
+        "Los Angeles": "North America",
+        "Chicago": "North America",
+        "Houston": "North America",
+        "Atlanta": "North America",
+        "Vancouver": "North America",
+        "Toronto": "North America",
+        "Portland": "North America",
+        "Seattle": "North America",
+        "San Francisco": "North America",
+        # Asia
+        "Tokyo": "Asia",
+        "Shanghai": "Asia",
+        "Hong Kong": "Asia",
+        "Singapore": "Asia",
+        "Bangkok": "Asia",
+        "Seoul": "Asia",
+        "Delhi": "Asia",
+        "Mumbai": "Asia",
+        "Osaka": "Asia",
+        "Kolkata": "Asia",
+        # Oceania
+        "Sydney": "Oceania",
+        # South America
+        "São Paulo": "South America",
+        "Rio de Janeiro": "South America",
+        "Lima": "South America",
+        "Buenos Aires": "South America",
+        # Africa
+        "Cape Town": "Africa",
+        "Johannesburg": "Africa",
+        "Cairo": "Africa",
+        "Lagos": "Africa",
+        "Abuja": "Africa",
     }
     
     for city, hint in hints.items():
@@ -377,17 +398,182 @@ def get_subtle_hint(location_name: str) -> str:
             return hint
     
     # Default hint if city not recognized
-    return "🗺️ Somewhere in the world"
+    return "Unknown"
+
+
+def get_timer_html(time_remaining: int, hint_text: str, hint_reveal_seconds: int, show_hint: bool) -> str:
+    """Generate a JavaScript-powered timer that updates visually without Streamlit refreshes.
+    
+    The timer counts down in the browser. Streamlit only needs to check for expiration
+    when the user interacts or in the final seconds.
+    """
+    hint_time = max(0, time_remaining - hint_reveal_seconds)
+    
+    return f"""
+    <div id="timer-container" style="text-align: center; padding: 15px; background: linear-gradient(135deg, #22c55e22, #22c55e11); 
+                border-radius: 10px; margin-bottom: 15px; border: 2px solid #22c55e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span id="timer-display" style="font-size: 28px; font-weight: bold; color: #22c55e;">
+                ⏱️ {time_remaining}s
+            </span>
+            <span id="hint-display" style="font-size: 16px; color: #666;">
+                💡 <span id="hint-text">{"" if show_hint else "Revealed in "}<span id="hint-countdown">{hint_text if show_hint else str(hint_time)}</span>{"" if show_hint else "s..."}</span>
+            </span>
+        </div>
+        <div id="expired-msg" style="display: none; color: #ef4444; font-weight: bold; margin-top: 10px; font-size: 18px;">
+            ⏰ Time's up! Click the map to end the round.
+        </div>
+    </div>
+    
+    <script>
+    (function() {{
+        let timeRemaining = {time_remaining};
+        const hintRevealSeconds = {hint_reveal_seconds};
+        const hintText = "{hint_text}";
+        const showHint = {'true' if show_hint else 'false'};
+        
+        const timerDisplay = document.getElementById('timer-display');
+        const timerContainer = document.getElementById('timer-container');
+        const hintCountdown = document.getElementById('hint-countdown');
+        const hintDisplay = document.getElementById('hint-text');
+        const expiredMsg = document.getElementById('expired-msg');
+        
+        function updateDisplay() {{
+            if (timeRemaining <= 0) {{
+                timerDisplay.innerHTML = '⏱️ 0s';
+                timerDisplay.style.color = '#ef4444';
+                timerContainer.style.background = 'linear-gradient(135deg, #ef444422, #ef444411)';
+                timerContainer.style.borderColor = '#ef4444';
+                expiredMsg.style.display = 'block';
+                hintDisplay.innerHTML = hintText;
+                return;
+            }}
+            
+            timerDisplay.innerHTML = '⏱️ ' + timeRemaining + 's';
+            
+            // Update color
+            let color = timeRemaining > 30 ? '#22c55e' : (timeRemaining > 15 ? '#f59e0b' : '#ef4444');
+            timerDisplay.style.color = color;
+            timerContainer.style.background = 'linear-gradient(135deg, ' + color + '22, ' + color + '11)';
+            timerContainer.style.borderColor = color;
+            
+            // Update hint
+            if (timeRemaining <= hintRevealSeconds) {{
+                hintDisplay.innerHTML = hintText;
+            }} else if (!showHint) {{
+                hintCountdown.innerHTML = (timeRemaining - hintRevealSeconds);
+            }}
+            
+            timeRemaining--;
+        }}
+        
+        // Update every second
+        setInterval(updateDisplay, 1000);
+    }})();
+    </script>
+    """
 
 
 def new_game_state():
+    import random
     return {
         "round": 0,
         "total_score": 0,
         "round_results": [],
         "current_location": None,
         "guess_submitted": False,
+        "round_start_time": None,  # Track when round started for timer
+        "timer_started": False,  # Timer only starts when user clicks Start Round
+        "initial_heading": random.randint(0, 360),  # Store to prevent reset on rerender
+        "time_expired": False,  # Flag for auto-submit on timeout
     }
+
+
+def get_result_map_html(guess_lat: float, guess_lng: float, actual_lat: float, actual_lng: float, 
+                         actual_name: str, distance_km: float) -> str:
+    """Generate an HTML map showing the guess vs actual location with a line between them."""
+    
+    # Calculate center point between guess and actual
+    center_lat = (guess_lat + actual_lat) / 2
+    center_lng = (guess_lng + actual_lng) / 2
+    
+    # Determine zoom level based on distance
+    if distance_km < 1:
+        zoom = 14
+    elif distance_km < 10:
+        zoom = 11
+    elif distance_km < 100:
+        zoom = 8
+    elif distance_km < 1000:
+        zoom = 5
+    elif distance_km < 5000:
+        zoom = 3
+    else:
+        zoom = 2
+    
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+            #result-map {{
+                width: 100%;
+                height: 400px;
+                border-radius: 12px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="result-map"></div>
+        <script>
+            var map = L.map('result-map').setView([{center_lat}, {center_lng}], {zoom});
+            
+            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                attribution: '© OpenStreetMap contributors'
+            }}).addTo(map);
+            
+            // Your guess marker (blue)
+            var guessIcon = L.divIcon({{
+                html: '<div style="background:#3b82f6; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+                className: 'guess-marker'
+            }});
+            L.marker([{guess_lat}, {guess_lng}], {{icon: guessIcon}})
+                .addTo(map)
+                .bindPopup('<b>📍 Your Guess</b>');
+            
+            // Actual location marker (green)
+            var actualIcon = L.divIcon({{
+                html: '<div style="background:#22c55e; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+                className: 'actual-marker'
+            }});
+            L.marker([{actual_lat}, {actual_lng}], {{icon: actualIcon}})
+                .addTo(map)
+                .bindPopup('<b>✅ {actual_name}</b>');
+            
+            // Line between guess and actual
+            var line = L.polyline([
+                [{guess_lat}, {guess_lng}],
+                [{actual_lat}, {actual_lng}]
+            ], {{
+                color: '#ef4444',
+                weight: 3,
+                opacity: 0.8,
+                dashArray: '10, 10'
+            }}).addTo(map);
+            
+            // Fit bounds to show both markers
+            map.fitBounds(line.getBounds(), {{padding: [50, 50]}});
+        </script>
+    </body>
+    </html>
+    """
 
 
 def main():
@@ -464,13 +650,15 @@ def main():
 
         st.markdown("---")
         st.subheader("🏆 Leaderboard")
+        st.caption("Best single-game scores")
         lb = api_get("/leaderboard", token=st.session_state.token)
         if lb:
             for i, item in enumerate(lb, 1):
                 medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                st.write(f"{medal} **{item['username']}** - {item['total_score']:,} pts")
+                games = item.get('games_played', 0)
+                st.write(f"{medal} **{item['username']}** - {item['total_score']:,} pts ({games} games)")
         else:
-            st.info("No leaderboard data yet")
+            st.info("No leaderboard data yet. Complete a game to appear!")
 
     # Main gameplay area
     if not st.session_state.token:
@@ -489,128 +677,277 @@ def main():
 
         # Fetch location if needed
         if st.session_state.game["current_location"] is None:
-            with st.spinner(""):
-                show_loading_animation()
-            loc = api_get("/random_location", token=st.session_state.token)
+            with st.spinner("Loading new location..."):
+                loc = api_get("/random_location", token=st.session_state.token)
             if not loc:
                 st.error("❌ Failed to fetch location")
                 return
             st.session_state.game["current_location"] = loc
             st.session_state.game["guess_submitted"] = False
+            st.session_state.game["round_start_time"] = None  # Will be set when user clicks "Start Round"
+            st.session_state.game["timer_started"] = False
 
         loc = st.session_state.game["current_location"]
-
-        # Subtle hint instead of exact location
-        hint = get_subtle_hint(loc['name'])
-        st.markdown(f"💡 **Hint:** {hint}")
-
-        # Display interactive Street View panorama
-        if GOOGLE_MAPS_API_KEY:
-            # Use interactive Street View (recommended)
-            streetview_html = get_interactive_streetview_html(
-                lat=loc["lat"],
-                lng=loc["lng"],
-                api_key=GOOGLE_MAPS_API_KEY
-            )
-            st.components.v1.html(streetview_html, height=520, scrolling=False)
-            st.caption("🎮 **Tip:** Drag to look around, click arrows to move along streets!")
-        elif loc.get("image_url"):
-            # Fallback to static image if no API key configured
-            image_url = get_image_url(loc["image_url"])
-            st.image(image_url, use_container_width=True, caption="📸 Street View - Click the map to guess!")
+        
+        # Initialize initial_heading if not set
+        if st.session_state.game.get("initial_heading") is None:
+            import random
+            st.session_state.game["initial_heading"] = random.randint(0, 360)
+        
+        # Check for time expiration
+        if st.session_state.game.get("timer_started", False) and not st.session_state.game["guess_submitted"]:
+            elapsed = time.time() - st.session_state.game["round_start_time"] if st.session_state.game["round_start_time"] else 0
+            time_remaining = max(0, int(ROUND_TIME_SECONDS - elapsed))
+            
+            # Auto-end round if time expired (award 0 points, no guess)
+            if time_remaining <= 0 and not st.session_state.game.get("time_expired", False):
+                st.session_state.game["time_expired"] = True
+                st.session_state.game["guess_submitted"] = True
+                # Award 0 points for timeout - don't increment round yet (wait for Next Round click)
+                st.session_state.game["round_results"].append({
+                    "dist": None,  # No guess made
+                    "pts": 0, 
+                    "guess_lat": None, 
+                    "guess_lng": None,
+                    "timeout": True
+                })
+                st.rerun()
         else:
-            st.warning("⚠️ No Street View available. Configure GOOGLE_MAPS_API_KEY for interactive view.")
+            time_remaining = ROUND_TIME_SECONDS
+        
+        show_hint = time_remaining <= HINT_REVEAL_SECONDS or st.session_state.game["guess_submitted"]
+        hint = get_subtle_hint(loc['name'])
+        
+        # Initialize last_clicked to avoid unbound variable error
+        last_clicked = None
+        
+        # Pre-round: Show "Start Round" button, hide Street View
+        if not st.session_state.game.get("timer_started", False) and not st.session_state.game["guess_submitted"]:
+            st.markdown("""
+            <div style='text-align: center; padding: 40px; background: linear-gradient(135deg, #667eea22, #764ba211); 
+                        border-radius: 15px; margin: 20px 0; border: 2px dashed #667eea'>
+                <h3 style='color: #667eea; margin-bottom: 10px;'>🌍 Location Ready!</h3>
+                <p style='color: #666;'>Click the button below to reveal the Street View and start the timer.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("▶️ Start Round", use_container_width=True, type="primary"):
+                st.session_state.game["round_start_time"] = time.time()
+                st.session_state.game["timer_started"] = True
+                st.session_state.game["time_expired"] = False
+                st.rerun()
+            
+            st.info("💡 **Hint:** *Start the round to reveal hint countdown*")
+            st.info("👆 Click **Start Round** above to begin guessing!")
+        
+        # During round or after submission
+        else:
+            # Only auto-refresh in the last 5 seconds to detect expiration
+            # This prevents constant re-renders while the user is interacting with the map
+            if st.session_state.game.get("timer_started", False) and not st.session_state.game["guess_submitted"]:
+                if time_remaining <= 5 and time_remaining > 0:
+                    # Refresh every second only in final 5 seconds
+                    st_autorefresh(interval=1000, limit=10, key="timer_refresh_final")
+                
+                timer_html = get_timer_html(
+                    time_remaining=time_remaining,
+                    hint_text=hint,
+                    hint_reveal_seconds=HINT_REVEAL_SECONDS,
+                    show_hint=show_hint
+                )
+                st.components.v1.html(timer_html, height=80)
+            elif st.session_state.game["guess_submitted"]:
+                st.markdown(f"💡 **Hint:** {hint}")
 
-        st.markdown("---")
+            # Display interactive Street View panorama
+            if GOOGLE_MAPS_API_KEY:
+                streetview_html = get_interactive_streetview_html(
+                    lat=loc["lat"],
+                    lng=loc["lng"],
+                    api_key=GOOGLE_MAPS_API_KEY,
+                    initial_heading=st.session_state.game["initial_heading"]
+                )
+                st.components.v1.html(streetview_html, height=520, scrolling=False)
+                st.caption("🎮 **Tip:** Drag to look around, click arrows to move along streets!")
+            elif loc.get("image_url"):
+                image_url = get_image_url(loc["image_url"])
+                st.image(image_url, use_container_width=True, caption="📸 Street View - Click the map to guess!")
+            else:
+                st.warning("⚠️ No Street View available. Configure GOOGLE_MAPS_API_KEY for interactive view.")
 
-        # Interactive map with actual location pin
-        m = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap")
-        
-        # Add the ACTUAL location as a hidden marker (for pinning after guess)
-        # But don't show it during the guess
-        if st.session_state.game["guess_submitted"]:
-            # Show the actual location pin after guess submitted
-            folium.Marker(
-                location=[loc["lat"], loc["lng"]],
-                popup=f"<b>{loc['name']}</b>",
-                icon=folium.Icon(color='green', icon='check', prefix='fa'),
-                tooltip="Actual Location"
-            ).add_to(m)
-        
-        # Show click popup
-        m.add_child(folium.LatLngPopup())
-        
-        # Instruction
-        st.components.v1.html("<style>.leaflet-container { cursor: crosshair !important; }</style>", height=0)
-        
-        map_data = st_folium(m, width=700, height=500)
-        last_clicked = map_data.get("last_clicked") if map_data else None
+            st.markdown("---")
 
-        # Show clicked location with marker on new map for confirmation
+            # Interactive guess map - show user's pin directly on this map
+            m = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap")
+            
+            # Show actual location marker after guess is submitted
+            if st.session_state.game["guess_submitted"]:
+                folium.Marker(
+                    location=[loc["lat"], loc["lng"]],
+                    popup=f"<b>{loc['name']}</b>",
+                    icon=folium.Icon(color='green', icon='check', prefix='fa'),
+                    tooltip="Actual Location"
+                ).add_to(m)
+            
+            # Add click popup to show coordinates
+            m.add_child(folium.LatLngPopup())
+            st.components.v1.html("<style>.leaflet-container { cursor: crosshair !important; }</style>", height=0)
+            
+            # Instructions for guessing
+            if not st.session_state.game["guess_submitted"]:
+                st.caption("📍 **Click on the map to place your guess, then click Submit**")
+            
+            map_data = st_folium(m, width=700, height=450, key=f"map_{st.session_state.game['round']}_{st.session_state.game['timer_started']}")
+            last_clicked = map_data.get("last_clicked") if map_data else None
+
+        # Handle guess submission - no confirmation map, just show coordinates and submit button
         if last_clicked and not st.session_state.game["guess_submitted"]:
             guess_lat = last_clicked["lat"]
             guess_lng = last_clicked["lng"]
             
-            # Show confirmation map with their guess
-            st.markdown(f"📍 **Your guess:** {guess_lat:.4f}, {guess_lng:.4f}")
-            
-            # Show mini map with their guess pinned
-            confirm_map = folium.Map(location=[guess_lat, guess_lng], zoom_start=10, tiles="OpenStreetMap")
-            folium.Marker(
-                location=[guess_lat, guess_lng],
-                popup="Your Guess",
-                icon=folium.Icon(color='blue', icon='map-pin', prefix='fa')
-            ).add_to(confirm_map)
-            st_folium(confirm_map, width=700, height=300)
-            
-            if st.button("✅ Submit This Guess", use_container_width=True, key=f"submit_{st.session_state.game['round']}"):
-                payload = {"location_id": loc["id"], "guess_lat": guess_lat, "guess_lng": guess_lng}
-                result = api_post("/submit_guess", token=st.session_state.token, json_body=payload)
-                if result:
-                    dist = result["distance_meters"]
-                    pts = result["points_awarded"]
-                    st.session_state.game["total_score"] += pts
-                    st.session_state.game["round_results"].append({"dist": dist, "pts": pts})
-                    st.session_state.game["guess_submitted"] = True
+            # Show selected coordinates and submit button in a compact format
+            col_coords, col_submit = st.columns([2, 1])
+            with col_coords:
+                st.markdown(f"📍 **Your guess:** `{guess_lat:.4f}, {guess_lng:.4f}`")
+            with col_submit:
+                if st.button("✅ Submit Guess", use_container_width=True, type="primary", key=f"submit_{st.session_state.game['round']}"):
+                    payload = {"location_id": loc["id"], "guess_lat": guess_lat, "guess_lng": guess_lng}
+                    result = api_post("/submit_guess", token=st.session_state.token, json_body=payload)
+                    if result:
+                        dist = result["distance_meters"]
+                        dist_km = dist / 1000
+                        pts = result["points_awarded"]
+                        st.session_state.game["total_score"] += pts
+                        st.session_state.game["round_results"].append({"dist": dist, "pts": pts, "guess_lat": guess_lat, "guess_lng": guess_lng})
+                        st.session_state.game["guess_submitted"] = True
+                        st.rerun()
+        
+        # Show results after submission (not timeout)
+        if st.session_state.game["guess_submitted"] and st.session_state.game["round_results"]:
+            last_result = st.session_state.game["round_results"][-1]
+            if not last_result.get("timeout", False):
+                dist = last_result["dist"]
+                pts = last_result["pts"]
+                guess_lat = last_result["guess_lat"]
+                guess_lng = last_result["guess_lng"]
+                dist_km = dist / 1000
+                
+                # Show confetti and feedback
+                show_confetti()
+                
+                dist_str = format_distance(dist)
+                if dist < 1000:  # Less than 1km
+                    st.success(f"🎯 **Amazing!** {pts:,} points | Distance: {dist_str}")
+                elif dist < 50000:  # Less than 50km
+                    st.info(f"👍 **Great!** {pts:,} points | Distance: {dist_str}")
+                elif dist < 500000:  # Less than 500km
+                    st.warning(f"📍 Good try! {pts:,} points | Distance: {dist_str}")
+                else:
+                    st.error(f"🌐 Keep practicing! {pts:,} points | Distance: {dist_str}")
+                
+                st.markdown(f"🎲 **Actual location:** {loc['name']}")
+                
+                # Show result map with guess vs actual location
+                st.markdown("### 🗺️ Result Map")
+                result_map_html = get_result_map_html(
+                    guess_lat=guess_lat,
+                    guess_lng=guess_lng,
+                    actual_lat=loc["lat"],
+                    actual_lng=loc["lng"],
+                    actual_name=loc["name"],
+                    distance_km=dist_km
+                )
+                st.components.v1.html(result_map_html, height=420)
+                
+                # Game over check - use number of results
+                rounds_completed = len(st.session_state.game["round_results"])
+                if rounds_completed >= ROUNDS_PER_GAME:
+                    # Submit final game score to update leaderboard
+                    final_score = st.session_state.game['total_score']
+                    game_result = api_post("/submit_game_score", token=st.session_state.token, json_body={"game_score": final_score})
                     
-                    # Show confetti and feedback
-                    show_confetti()
+                    time.sleep(2)
+                    st.balloons()
+                    st.markdown("---")
+                    st.markdown(f"<h2 style='text-align: center; color: #667eea;'>🎉 Game Over! 🎉</h2>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='text-align: center; font-size: 32px; color: #764ba2;'>Final Score: {final_score:,} points</p>", unsafe_allow_html=True)
                     
-                    if dist < 100:
-                        st.success(f"🎯 **Amazing!** {pts:,} points | Distance: {dist:,.0f}m")
-                    elif dist < 5000:
-                        st.info(f"👍 **Great!** {pts:,} points | Distance: {dist:,.0f}m")
-                    elif dist < 50000:
-                        st.warning(f"📍 Good try! {pts:,} points | Distance: {dist:,.0f}m")
-                    else:
-                        st.error(f"🌐 Keep practicing! {pts:,} points | Distance: {dist:,.0f}m")
+                    # Show if this is a new personal best
+                    if game_result and game_result.get("is_new_best"):
+                        st.success("🏆 **New Personal Best!**")
+                    elif game_result:
+                        st.info(f"Your best score: {game_result.get('best_game_score', 0):,} points")
                     
-                    st.markdown(f"🎲 **Actual location:** {loc['name']}")
-                    
-                    st.session_state.game["round"] += 1
-                    
-                    # Game over check
-                    if st.session_state.game["round"] >= ROUNDS_PER_GAME:
-                        time.sleep(2)
-                        st.balloons()
-                        st.markdown("---")
-                        st.markdown(f"<h2 style='text-align: center; color: #667eea;'>🎉 Game Over! 🎉</h2>", unsafe_allow_html=True)
-                        st.markdown(f"<p style='text-align: center; font-size: 32px; color: #764ba2;'>Final Score: {st.session_state.game['total_score']:,} points</p>", unsafe_allow_html=True)
-                        
-                        if st.button("🔄 Play Again", use_container_width=True):
-                            st.session_state.game = new_game_state()
-                            st.rerun()
-                    else:
-                        st.markdown("---")
-                        if st.button("➡️ Next Round", use_container_width=True, key=f"next_{st.session_state.game['round']}"):
-                            st.session_state.game["current_location"] = None
-                            st.rerun()
+                    if st.button("🔄 Play Again", use_container_width=True):
+                        st.session_state.game = new_game_state()
+                        st.rerun()
+                else:
+                    st.markdown("---")
+                    if st.button("➡️ Next Round", use_container_width=True, key=f"next_{st.session_state.game['round']}_{rounds_completed}"):
+                        import random
+                        st.session_state.game["round"] += 1  # Increment round only when clicking Next
+                        st.session_state.game["current_location"] = None
+                        st.session_state.game["timer_started"] = False
+                        st.session_state.game["round_start_time"] = None
+                        st.session_state.game["initial_heading"] = random.randint(0, 360)
+                        st.session_state.game["time_expired"] = False
+                        st.session_state.game["guess_submitted"] = False
+                        st.rerun()
         elif st.session_state.game["guess_submitted"]:
-            # After submission, show next round button
-            st.markdown("---")
-            if st.button("➡️ Next Round", use_container_width=True, key=f"next_{st.session_state.game['round']}"):
-                st.session_state.game["current_location"] = None
-                st.rerun()
+            # Check if this was a timeout
+            last_result = st.session_state.game["round_results"][-1] if st.session_state.game["round_results"] else None
+            is_timeout = last_result and last_result.get("timeout", False)
+            
+            if is_timeout:
+                # Show timeout message
+                st.error("⏰ **Time's Up!** You didn't submit a guess in time.")
+                st.markdown(f"**0 points** awarded for this round.")
+                st.markdown(f"🎲 **The location was:** {loc['name']}")
+                
+                # Show just the actual location on a map
+                timeout_map = folium.Map(location=[loc["lat"], loc["lng"]], zoom_start=6, tiles="OpenStreetMap")
+                folium.Marker(
+                    location=[loc["lat"], loc["lng"]],
+                    popup=f"<b>{loc['name']}</b>",
+                    icon=folium.Icon(color='green', icon='check', prefix='fa'),
+                    tooltip="Actual Location"
+                ).add_to(timeout_map)
+                st_folium(timeout_map, width=700, height=400)
+            
+            # Game over check - use number of results to check completion
+            rounds_completed = len(st.session_state.game["round_results"])
+            if rounds_completed >= ROUNDS_PER_GAME:
+                # Submit final game score to update leaderboard
+                final_score = st.session_state.game['total_score']
+                game_result = api_post("/submit_game_score", token=st.session_state.token, json_body={"game_score": final_score})
+                
+                st.balloons()
+                st.markdown("---")
+                st.markdown(f"<h2 style='text-align: center; color: #667eea;'>🎉 Game Over! 🎉</h2>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align: center; font-size: 32px; color: #764ba2;'>Final Score: {final_score:,} points</p>", unsafe_allow_html=True)
+                
+                # Show if this is a new personal best
+                if game_result and game_result.get("is_new_best"):
+                    st.success("🏆 **New Personal Best!**")
+                elif game_result:
+                    st.info(f"Your best score: {game_result.get('best_game_score', 0):,} points")
+                
+                if st.button("🔄 Play Again", use_container_width=True):
+                    st.session_state.game = new_game_state()
+                    st.rerun()
+            else:
+                # Show next round button
+                st.markdown("---")
+                if st.button("➡️ Next Round", use_container_width=True, key=f"next_{st.session_state.game['round']}_{rounds_completed}"):
+                    import random
+                    st.session_state.game["round"] += 1  # Increment round here
+                    st.session_state.game["current_location"] = None
+                    st.session_state.game["timer_started"] = False
+                    st.session_state.game["round_start_time"] = None
+                    st.session_state.game["initial_heading"] = random.randint(0, 360)
+                    st.session_state.game["time_expired"] = False
+                    st.session_state.game["guess_submitted"] = False
+                    st.rerun()
 
     with col_stats:
         st.subheader("📊 Your Stats")
@@ -619,13 +956,22 @@ def main():
         with col1:
             st.metric("Points", f"{st.session_state.game['total_score']:,}")
         with col2:
-            st.metric("Rounds", f"{st.session_state.game['round']}/{ROUNDS_PER_GAME}")
+            # Show current round number (1-indexed) vs total
+            current_round = st.session_state.game['round'] + 1
+            st.metric("Round", f"{current_round}/{ROUNDS_PER_GAME}")
         
         st.divider()
         st.subheader("📈 Recent Results")
         if st.session_state.game["round_results"]:
-            for i, r in enumerate(reversed(st.session_state.game["round_results"][-5:]), 1):
-                st.write(f"**Round {st.session_state.game['round']-i}:** {r['pts']:,} pts | {r['dist']:,.0f}m away")
+            results = st.session_state.game["round_results"][-5:]  # Last 5 results
+            total_results = len(st.session_state.game["round_results"])
+            for i, r in enumerate(reversed(results)):
+                round_num = total_results - i  # Calculate from total results
+                if r.get("timeout", False):
+                    st.write(f"**Round {round_num}:** ⏰ Timeout | 0 pts")
+                else:
+                    dist_str = format_distance(r['dist'])
+                    st.write(f"**Round {round_num}:** {r['pts']:,} pts | {dist_str} away")
         else:
             st.info("No results yet")
 

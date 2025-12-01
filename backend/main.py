@@ -94,8 +94,10 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    total_score = Column(Integer, default=0)
+    total_score = Column(Integer, default=0)  # Cumulative total (for stats)
     rounds_played = Column(Integer, default=0)
+    best_game_score = Column(Integer, default=0)  # Highest score in a single 5-round game
+    games_played = Column(Integer, default=0)  # Number of complete games played
 
 
 class Location(Base):
@@ -109,6 +111,30 @@ class Location(Base):
 
 
 Base.metadata.create_all(bind=engine)
+
+# --------------------
+# Database Migration: Add new columns if they don't exist
+# --------------------
+def run_migrations():
+    """Add new columns to existing tables if they don't exist."""
+    from sqlalchemy import inspect, text
+    
+    inspector = inspect(engine)
+    columns = [col['name'] for col in inspector.get_columns('users')]
+    
+    with engine.connect() as conn:
+        if 'best_game_score' not in columns:
+            conn.execute(text('ALTER TABLE users ADD COLUMN best_game_score INTEGER DEFAULT 0'))
+            conn.commit()
+            print("Added best_game_score column to users table")
+        
+        if 'games_played' not in columns:
+            conn.execute(text('ALTER TABLE users ADD COLUMN games_played INTEGER DEFAULT 0'))
+            conn.commit()
+            print("Added games_played column to users table")
+
+# Run migrations on startup
+run_migrations()
 
 # --------------------
 # Security
@@ -201,6 +227,19 @@ class GuessResponse(BaseModel):
     distance_meters: float
     points_awarded: int
     total_score: int
+
+
+class GameScoreRequest(BaseModel):
+    """Submit the final score for a completed 5-round game."""
+    game_score: int  # Total points from 5 rounds
+
+
+class GameScoreResponse(BaseModel):
+    """Response after submitting a game score."""
+    game_score: int
+    is_new_best: bool
+    best_game_score: int
+    games_played: int
 
 
 class FetchImageRequest(BaseModel):
@@ -437,9 +476,48 @@ def submit_guess(guess: GuessRequest, current_user: User = Depends(get_current_u
 
 @app.get("/leaderboard")
 def leaderboard(limit: int = 10, db: Session = Depends(get_db)):
-    # Return top users by total_score
-    users = db.query(User).order_by(User.total_score.desc()).limit(limit).all()
-    return [{"username": u.username, "total_score": u.total_score, "rounds_played": u.rounds_played} for u in users]
+    # Return top users by best_game_score (highest score in a single 5-round game)
+    users = db.query(User).filter(User.best_game_score > 0).order_by(User.best_game_score.desc()).limit(limit).all()
+    return [
+        {
+            "username": u.username, 
+            "total_score": u.best_game_score,  # Display best game score as the main score
+            "best_game_score": u.best_game_score,
+            "games_played": u.games_played or 0
+        } 
+        for u in users
+    ]
+
+
+@app.post("/submit_game_score", response_model=GameScoreResponse)
+def submit_game_score(
+    request: GameScoreRequest, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """
+    Submit the final score for a completed 5-round game.
+    Updates the user's best_game_score if this game score is higher.
+    """
+    game_score = request.game_score
+    current_best = current_user.best_game_score or 0
+    is_new_best = game_score > current_best
+    
+    if is_new_best:
+        current_user.best_game_score = game_score
+    
+    current_user.games_played = (current_user.games_played or 0) + 1
+    
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    
+    return GameScoreResponse(
+        game_score=game_score,
+        is_new_best=is_new_best,
+        best_game_score=current_user.best_game_score,
+        games_played=current_user.games_played
+    )
 
 
 # --------------------
