@@ -576,7 +576,139 @@ def get_result_map_html(guess_lat: float, guess_lng: float, actual_lat: float, a
     """
 
 
+def show_auth_page():
+    """Display a dedicated login/signup page (called after page config is set)."""
+    
+    # Custom CSS for auth page
+    st.markdown("""
+    <style>
+    .main {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+    }
+    .stButton button {
+        background-color: #667eea;
+        color: white;
+        font-weight: bold;
+        border-radius: 8px;
+        border: none;
+        padding: 12px 24px;
+        width: 100%;
+        transition: all 0.3s;
+    }
+    .stButton button:hover {
+        background-color: #764ba2;
+        transform: scale(1.02);
+    }
+    .auth-container {
+        background: white;
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        max-width: 450px;
+        margin: 0 auto;
+    }
+    .auth-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    .auth-header h1 {
+        color: #667eea;
+        font-size: 28px;
+        margin-bottom: 10px;
+    }
+    .auth-header p {
+        color: #666;
+        font-size: 14px;
+    }
+    div[data-testid="stTabs"] button {
+        font-size: 16px;
+        font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Center the content
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; padding: 20px 0 30px 0;'>
+            <h1 style='font-size: 48px; margin-bottom: 5px;'>🌍</h1>
+            <h1 style='color: #667eea; font-size: 32px; margin-bottom: 10px;'>Street Smarts</h1>
+            <p style='color: #666; font-size: 16px;'>Test your geography skills with Google Street View</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Create tabs for Login and Register
+        tab_login, tab_register = st.tabs(["🔓 Login", "✅ Register"])
+        
+        with tab_login:
+            st.markdown("<br>", unsafe_allow_html=True)
+            login_username = st.text_input("Username", key="login_user", placeholder="Enter your username")
+            login_password = st.text_input("Password", type="password", key="login_pw", placeholder="Enter your password")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Login", use_container_width=True, key="login_btn"):
+                if not login_username or not login_password:
+                    st.error("Please enter username and password")
+                else:
+                    ok, token = login_user(login_username, login_password)
+                    if ok and token:
+                        st.session_state.token = token
+                        st.success("✅ Logged in successfully!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Login failed: {token}")
+        
+        with tab_register:
+            st.markdown("<br>", unsafe_allow_html=True)
+            reg_username = st.text_input("Username", key="reg_user", placeholder="Choose a username")
+            reg_password = st.text_input("Password", type="password", key="reg_pw", placeholder="Choose a password")
+            reg_password2 = st.text_input("Confirm Password", type="password", key="reg_pw2", placeholder="Confirm your password")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Create Account", use_container_width=True, key="reg_btn"):
+                if not reg_username or not reg_password:
+                    st.error("Please enter username and password")
+                elif reg_password != reg_password2:
+                    st.error("Passwords do not match")
+                elif len(reg_password) < 4:
+                    st.error("Password must be at least 4 characters")
+                else:
+                    ok, resp = register_user(reg_username, reg_password)
+                    if ok:
+                        st.success("✅ Account created! You can now login.")
+                    else:
+                        st.error(f"❌ Registration failed: {resp}")
+        
+        # Show leaderboard preview
+        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        st.markdown("### 🏆 Top Players")
+        lb = api_get("/leaderboard", token=None)
+        if lb and len(lb) > 0:
+            for i, item in enumerate(lb[:5], 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                st.write(f"{medal} **{item['username']}** - {item['total_score']:,} pts")
+        else:
+            st.info("No scores yet. Be the first to play!")
+
+
 def main():
+    # Initialize session state first (before page config)
+    if "token" not in st.session_state:
+        st.session_state.token = None
+    if "game" not in st.session_state:
+        st.session_state.game = new_game_state()
+    
+    # Set page config based on auth status (must be first Streamlit command)
+    if not st.session_state.token:
+        st.set_page_config(page_title="Street Smarts - Login", layout="centered", initial_sidebar_state="collapsed")
+        show_auth_page()
+        return
+    
+    # User is logged in - show the game with wide layout
     st.set_page_config(page_title="Street Smarts - Guess The Location", layout="wide", initial_sidebar_state="expanded")
 
     # Custom CSS for better styling
@@ -601,52 +733,22 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    if "token" not in st.session_state:
-        st.session_state.token = None
-    if "game" not in st.session_state:
-        st.session_state.game = new_game_state()
-
+    # Remove duplicate session state init (already done above)
+    
     # Header with emoji
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<h1>🌍 Street Smarts - Guess The Location 🎯</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Test your geography skills with Google Street View</p>", unsafe_allow_html=True)
 
-    # Sidebar: login / register / leaderboard
+    # Sidebar: logout and leaderboard (user is already logged in)
     with st.sidebar:
         st.markdown("### 👤 Account")
-        if not st.session_state.token:
-            choice = st.radio("Select Action", ["Login", "Register"], key="auth_choice")
-            username = st.text_input("Username", key="auth_user")
-            password = st.text_input("Password", type="password", key="auth_pw")
-            if choice == "Register":
-                if st.button("✅ Register", use_container_width=True):
-                    if not username or not password:
-                        st.error("Please enter username and password")
-                    else:
-                        ok, resp = register_user(username, password)
-                        if ok:
-                            st.success("✅ Account created! Now you can log in.")
-                        else:
-                            st.error(f"❌ Registration failed: {resp}")
-            else:
-                if st.button("🔓 Login", use_container_width=True):
-                    if not username or not password:
-                        st.error("Please enter username and password")
-                    else:
-                        ok, token = login_user(username, password)
-                        if ok and token:
-                            st.session_state.token = token
-                            st.success("✅ Logged in!")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ Login failed: {token}")
-        else:
-            st.success(f"✅ Logged in")
-            if st.button("🚪 Logout", use_container_width=True):
-                st.session_state.token = None
-                st.session_state.game = new_game_state()
-                st.rerun()
+        st.success(f"✅ Logged in")
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.token = None
+            st.session_state.game = new_game_state()
+            st.rerun()
 
         st.markdown("---")
         st.subheader("🏆 Leaderboard")
@@ -659,11 +761,6 @@ def main():
                 st.write(f"{medal} **{item['username']}** - {item['total_score']:,} pts ({games} games)")
         else:
             st.info("No leaderboard data yet. Complete a game to appear!")
-
-    # Main gameplay area
-    if not st.session_state.token:
-        st.info("👉 **Log in to start playing!** Use the sidebar to register or log in.")
-        return
 
     # Game layout
     col_main, col_stats = st.columns([2.5, 1], gap="large")
